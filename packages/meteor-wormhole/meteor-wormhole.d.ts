@@ -88,6 +88,8 @@ declare module 'meteor/wreiske:meteor-wormhole' {
     options?: GenerateOpenApiSpecOptions,
   ): object;
 
+  export function sanitizeToolName(name: string): string;
+
   export class RestBridge {
     constructor(
       registry: unknown,
