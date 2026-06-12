@@ -3,7 +3,7 @@ Package.describe({
   version: '0.3.0',
   summary:
     'A cosmic bridge connecting Meteor methods to AI agents through MCP, REST API, and OpenAPI',
-  git: 'https://github.com/mieweb/meteor-wormhole',
+  git: 'https://github.com/wreiske/meteor-wormhole',
   documentation: 'README.md',
 });
 
