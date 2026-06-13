@@ -1,6 +1,7 @@
 import { Meteor } from 'meteor/meteor';
 import { WebApp } from 'meteor/webapp';
 import { randomUUID } from 'crypto';
+import { runWithInvocation } from './invocation-context';
 
 // Use explicit dist paths — Meteor's module resolver doesn't support the
 // wildcard subpath exports pattern ("./*") used by the SDK's package.json.
@@ -172,9 +173,13 @@ export class McpBridge {
       const body = await parseBody(req);
 
       if (sessionId && this._transports.has(sessionId)) {
-        // Existing session
+        // Existing session. Run inside an invocation context so tool handlers
+        // (and the Meteor methods they call) can read the request's
+        // Authorization header via Wormhole.currentInvocation().
         const entry = this._transports.get(sessionId);
-        await entry.transport.handleRequest(req, res, body);
+        await runWithInvocation({ transport: 'mcp', req }, () =>
+          entry.transport.handleRequest(req, res, body),
+        );
       } else if (!sessionId) {
         // New session initialization
         const { server, transport } = this._createSession();
@@ -183,7 +188,9 @@ export class McpBridge {
         if (transport.sessionId) {
           this._transports.set(transport.sessionId, { server, transport });
         }
-        await transport.handleRequest(req, res, body);
+        await runWithInvocation({ transport: 'mcp', req }, () =>
+          transport.handleRequest(req, res, body),
+        );
 
         // Store transport after handling (sessionId may be set during handleRequest)
         if (transport.sessionId && !this._transports.has(transport.sessionId)) {
