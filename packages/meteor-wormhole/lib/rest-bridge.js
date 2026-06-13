@@ -2,6 +2,7 @@ import { Meteor } from 'meteor/meteor';
 import { WebApp } from 'meteor/webapp';
 import { sanitizeToolName } from './mcp-bridge';
 import { generateOpenApiSpec } from './openapi';
+import { runWithInvocation } from './invocation-context';
 
 /** Maximum allowed request body size in bytes (1 MB). */
 const MAX_BODY_SIZE = 1024 * 1024;
@@ -340,15 +341,18 @@ export class RestBridge {
     }
 
     try {
-      let result;
-      if (config.inputSchema) {
-        // Pass the entire body as a single argument (explicit schema mode)
-        result = await Meteor.callAsync(methodName, body || {});
-      } else {
+      // Run the method inside an invocation context so method code can read
+      // transport metadata (e.g. the Authorization header) via
+      // Wormhole.currentInvocation() instead of body-smuggled credentials.
+      const result = await runWithInvocation({ transport: 'rest', req, methodName }, async () => {
+        if (config.inputSchema) {
+          // Pass the entire body as a single argument (explicit schema mode)
+          return Meteor.callAsync(methodName, body || {});
+        }
         // Generic mode: spread the args array
         const args = (body && body.args) || [];
-        result = await Meteor.callAsync(methodName, ...args);
-      }
+        return Meteor.callAsync(methodName, ...args);
+      });
       sendJson(res, 200, { result: result ?? null });
     } catch (error) {
       if (error instanceof Meteor.Error) {

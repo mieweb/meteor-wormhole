@@ -3,6 +3,7 @@ import { installHook, removeHook } from './hooks';
 import { McpBridge } from './mcp-bridge';
 import { RestBridge } from './rest-bridge';
 import { PluginHost } from './plugins';
+import { currentInvocation, currentBearerToken } from './invocation-context';
 
 /**
  * Wormhole — the main API for connecting Meteor methods to MCP.
@@ -164,6 +165,26 @@ class WormholeManager {
    */
   get options() {
     return { ...this._options };
+  }
+
+  /**
+   * The invocation context for the currently-executing method, when it was
+   * called through a Wormhole transport (REST or MCP). Undefined for plain
+   * DDP calls. Lets method code read transport metadata — most importantly
+   * the caller's `Authorization` header — without credentials in the body.
+   * @returns {import('./invocation-context').WormholeInvocation|undefined}
+   */
+  currentInvocation() {
+    return currentInvocation();
+  }
+
+  /**
+   * The caller's bearer token (`Authorization: Bearer …`) for the current
+   * Wormhole invocation, or null.
+   * @returns {string|null}
+   */
+  currentBearerToken() {
+    return currentBearerToken();
   }
 
   /**
