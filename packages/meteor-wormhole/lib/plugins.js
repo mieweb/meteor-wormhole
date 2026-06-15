@@ -20,6 +20,7 @@ export class PluginHost {
   constructor() {
     this._plugins = [];
     this._api = null;
+    this._mounted = [];
   }
 
   /**
@@ -49,6 +50,7 @@ export class PluginHost {
       ...api,
       mount: (path, handler) => {
         WebApp.connectHandlers.use(path, handler);
+        this._mounted.push({ path, handler });
       },
     };
     for (const plugin of this._plugins) {
@@ -56,19 +58,48 @@ export class PluginHost {
     }
   }
 
-  /** Stop all plugins (reverse order) and reset host state. */
-  async stopAll() {
+  /**
+   * Stop all plugins (reverse order), unmount their handlers, and reset host
+   * state.
+   *
+   * Synchronous by design: a plugin's `stop()` promise is NOT awaited, so a
+   * caller (e.g. `Wormhole._reset()`) can re-initialize immediately without
+   * racing in-flight stops. Rejections are logged.
+   *
+   * @returns {void}
+   */
+  stopAll() {
     for (const plugin of [...this._plugins].reverse()) {
       if (typeof plugin.stop === 'function') {
         try {
-          await plugin.stop();
+          const result = plugin.stop();
+          if (result && typeof result.then === 'function') {
+            result.catch((err) => {
+              console.error(`[Wormhole] Error stopping plugin "${plugin.name}":`, err);
+            });
+          }
         } catch (err) {
           console.error(`[Wormhole] Error stopping plugin "${plugin.name}":`, err);
         }
       }
     }
+    this._unmountAll();
     this._plugins = [];
     this._api = null;
+  }
+
+  /** Remove handlers mounted via `api.mount()` from the connect stack. */
+  _unmountAll() {
+    const stack = WebApp.connectHandlers && WebApp.connectHandlers.stack;
+    if (Array.isArray(stack) && this._mounted.length > 0) {
+      const handlers = new Set(this._mounted.map((m) => m.handler));
+      for (let i = stack.length - 1; i >= 0; i -= 1) {
+        if (handlers.has(stack[i].handle)) {
+          stack.splice(i, 1);
+        }
+      }
+    }
+    this._mounted = [];
   }
 
   names() {
@@ -79,11 +110,19 @@ export class PluginHost {
     try {
       const result = plugin.start(this._api);
       if (result && typeof result.then === 'function') {
-        result.catch((err) => {
-          console.error(`[Wormhole] Plugin "${plugin.name}" failed to start:`, err);
-        });
+        // Async start: only log success once the promise actually resolves,
+        // and log failure once if it rejects.
+        result.then(
+          () => {
+            console.info(`[Wormhole] Plugin "${plugin.name}" started`);
+          },
+          (err) => {
+            console.error(`[Wormhole] Plugin "${plugin.name}" failed to start:`, err);
+          },
+        );
+      } else {
+        console.info(`[Wormhole] Plugin "${plugin.name}" started`);
       }
-      console.info(`[Wormhole] Plugin "${plugin.name}" started`);
     } catch (err) {
       console.error(`[Wormhole] Plugin "${plugin.name}" failed to start:`, err);
     }
