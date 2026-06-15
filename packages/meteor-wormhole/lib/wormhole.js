@@ -98,9 +98,16 @@ class WormholeManager {
     this._initialized = true;
 
     // Start any registered plugins (and allow late registration via use()).
+    // Clone nested option objects so plugins can't mutate Wormhole's internal
+    // configuration (notably `rest` and `exclude`). `context` is intentionally
+    // shared by reference — it is the app's own object.
     this._pluginHost.startAll({
       registry: this._registry,
-      options: { ...this._options },
+      options: {
+        ...this._options,
+        rest: { ...this._options.rest },
+        exclude: [...this._options.exclude],
+      },
       context: this._options.context,
     });
 
@@ -111,10 +118,24 @@ class WormholeManager {
 
   /**
    * Register a Wormhole plugin (e.g. transport bridges or ingest endpoints).
-   * May be called before or after init(); plugins registered after init()
-   * are started immediately.
    *
-   * @param {{name: string, start: Function, stop?: Function}} plugin
+   * May be called before or after init(): plugins registered before init()
+   * start during init(); plugins registered after init() start immediately.
+   *
+   * The plugin's `start(api)` receives an API object with:
+   * `registry` (the method registry), `options` (a copy of the resolved init
+   * options), `context` (the app-provided context), and
+   * `mount(path, handler)` (attach a connect-style handler to the web server).
+   *
+   * @param {object} plugin - The plugin to register.
+   * @param {string} plugin.name - Unique plugin name.
+   * @param {(api: object) => (void | Promise<void>)} plugin.start - Startup
+   *   hook, called with the plugin API.
+   * @param {() => (void | Promise<void>)} [plugin.stop] - Optional cleanup
+   *   hook, called on reset/destroy.
+   * @returns {void}
+   * @throws {Error} If the plugin is malformed (missing `name` or `start`) or
+   *   a plugin with the same `name` is already registered.
    */
   use(plugin) {
     this._pluginHost.use(plugin);
@@ -176,7 +197,7 @@ class WormholeManager {
     if (this._restBridge) {
       this._restBridge.destroy();
     }
-    void this._pluginHost.stopAll();
+    this._pluginHost.stopAll();
     removeHook();
     this._registry.clear();
     this._initialized = false;
